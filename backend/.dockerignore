@@ -1,0 +1,19 @@
+# Build outputs
+**/bin/
+**/obj/
+
+# Secrets — never bake into image
+src/ShowSphere.API/.env
+
+# Logs
+**/logs/
+
+# Local DB files
+*.db
+*.db-shm
+*.db-wal
+
+# VS files
+.vs/
+*.user
+*.suo

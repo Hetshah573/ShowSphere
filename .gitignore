@@ -1,0 +1,33 @@
+# Secrets - never commit these
+backend/src/ShowSphere.API/.env
+
+# .NET build outputs
+**/bin/
+**/obj/
+*.user
+
+# Logs
+**/logs/
+*.log
+
+# SQLite (old, replaced by Neon)
+*.db
+*.db-shm
+*.db-wal
+
+# VS / Rider
+.vs/
+.idea/
+*.suo
+*.user
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# OS
+.DS_Store
+Thumbs.db
