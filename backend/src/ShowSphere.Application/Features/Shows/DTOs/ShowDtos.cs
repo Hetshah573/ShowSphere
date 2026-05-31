@@ -25,7 +25,8 @@ public record ShowTimingDto(
     string ScreenName,
     string ScreenType,
     DateTime StartTime,
-    decimal BasePrice,
+    decimal MinPrice,
+    decimal MaxPrice,
     int AvailableSeats);
 
 public record CreateShowRequest(

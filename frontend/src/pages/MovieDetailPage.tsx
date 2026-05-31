@@ -173,7 +173,9 @@ export function MovieDetailPage() {
                         {show.screenName} • {show.screenType}
                       </div>
                       <div className="text-xs text-gray-500">
-                        {formatCurrency(show.basePrice)} • {show.availableSeats} seats
+                        {show.minPrice === show.maxPrice
+                          ? formatCurrency(show.minPrice)
+                          : `${formatCurrency(show.minPrice)} – ${formatCurrency(show.maxPrice)}`} • {show.availableSeats} seats
                       </div>
                     </button>
                   ))}

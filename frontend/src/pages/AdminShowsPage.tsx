@@ -60,7 +60,7 @@ export function AdminShowsPage() {
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No shows scheduled</td></tr>
               ) : (
                 shows.items.map((show) => (
-                  <tr key={show.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
+                  <tr key={show.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{show.movieTitle}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
                       {show.theaterName}

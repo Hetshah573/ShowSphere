@@ -158,6 +158,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(bs => bs.Price).HasPrecision(10, 2);
             entity.HasOne(bs => bs.Booking).WithMany(b => b.BookingSeats).HasForeignKey(bs => bs.BookingId);
             entity.HasOne(bs => bs.Seat).WithMany(s => s.BookingSeats).HasForeignKey(bs => bs.SeatId);
+
+            // Prevent double-booking: unique active seat per show at DB level
+            entity.HasIndex(bs => new { bs.SeatId, bs.ShowId })
+                .HasFilter("\"Status\" IN (0, 1)")
+                .IsUnique()
+                .HasDatabaseName("IX_BookingSeat_Unique_Active_Seat_Per_Show");
         });
 
         // Payment

@@ -51,76 +51,86 @@ public class CreateBookingCommandHandler : IRequestHandler<CreateBookingCommand,
         if (seats.Count != request.SeatIds.Count)
             return Result<BookingDto>.Failure("One or more selected seats are invalid", 400);
 
-        // Check for existing bookings/locks on these seats
-        var lockedSeatIds = await _context.BookingSeats
-            .Where(bs => request.SeatIds.Contains(bs.SeatId)
-                && bs.Booking.ShowId == request.ShowId
-                && (bs.Status == BookingStatus.Confirmed
-                    || (bs.Status == BookingStatus.Pending && bs.Booking.ExpiresAt > DateTime.UtcNow)))
-            .Select(bs => bs.SeatId)
-            .ToListAsync(cancellationToken);
-
-        if (lockedSeatIds.Any())
-            return Result<BookingDto>.Failure("One or more seats are already booked or locked", 409);
-
-        // Calculate total
-        var totalAmount = seats.Sum(s => s.Price);
-
-        // Create booking with expiration (10 min lock)
-        var booking = new Booking
-        {
-            UserId = request.UserId,
-            ShowId = request.ShowId,
-            BookingNumber = GenerateBookingNumber(),
-            TotalSeats = seats.Count,
-            TotalAmount = totalAmount,
-            Status = BookingStatus.Pending,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10)
-        };
-
-        foreach (var seat in seats)
-        {
-            booking.BookingSeats.Add(new BookingSeat
-            {
-                BookingId = booking.Id,
-                SeatId = seat.Id,
-                Price = seat.Price,
-                Status = BookingStatus.Pending
-            });
-        }
-
-        // Create payment record
-        var payment = new Payment
-        {
-            BookingId = booking.Id,
-            Amount = totalAmount,
-            Method = request.PaymentMethod,
-            Status = PaymentStatus.Pending
-        };
-
-        _context.Bookings.Add(booking);
-        _context.Payments.Add(payment);
+        // Use serializable transaction to prevent race conditions on seat booking
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
 
         try
         {
+            // Check for existing bookings/locks on these seats (within serializable transaction)
+            var lockedSeatIds = await _context.BookingSeats
+                .Where(bs => request.SeatIds.Contains(bs.SeatId)
+                    && bs.Booking.ShowId == request.ShowId
+                    && (bs.Status == BookingStatus.Confirmed
+                        || (bs.Status == BookingStatus.Pending && bs.Booking.ExpiresAt > DateTime.UtcNow)))
+                .Select(bs => bs.SeatId)
+                .ToListAsync(cancellationToken);
+
+            if (lockedSeatIds.Any())
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return Result<BookingDto>.Failure("One or more seats are already booked or locked", 409);
+            }
+
+            // Calculate total
+            var totalAmount = seats.Sum(s => s.Price);
+
+            // Create booking with expiration (10 min lock)
+            var booking = new Booking
+            {
+                UserId = request.UserId,
+                ShowId = request.ShowId,
+                BookingNumber = GenerateBookingNumber(),
+                TotalSeats = seats.Count,
+                TotalAmount = totalAmount,
+                Status = BookingStatus.Pending,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(10)
+            };
+
+            foreach (var seat in seats)
+            {
+                booking.BookingSeats.Add(new BookingSeat
+                {
+                    BookingId = booking.Id,
+                    SeatId = seat.Id,
+                    ShowId = request.ShowId,
+                    Price = seat.Price,
+                    Status = BookingStatus.Pending
+                });
+            }
+
+            // Create payment record
+            var payment = new Payment
+            {
+                BookingId = booking.Id,
+                Amount = totalAmount,
+                Method = request.PaymentMethod,
+                Status = PaymentStatus.Pending
+            };
+
+            _context.Bookings.Add(booking);
+            _context.Payments.Add(payment);
             await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            await _auditService.LogAsync(request.UserId, "CreateBooking", "Booking", booking.Id.ToString(),
+                $"Seats: {string.Join(",", seats.Select(s => $"{s.Row}{s.Number}"))}");
+
+            var bookingDto = new BookingDto(
+                booking.Id, booking.BookingNumber, show.Movie.Title,
+                show.Screen.Theater.Name, show.Screen.Name, show.StartTime,
+                booking.TotalSeats, booking.TotalAmount, booking.Status.ToString(),
+                seats.Select(s => new BookingSeatDto(s.Id, s.Row, s.Number, s.Category.ToString(), s.Price)).ToList(),
+                null, booking.CreatedAt, booking.ExpiresAt);
+
+            return Result<BookingDto>.Success(bookingDto, 201);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateException)
         {
+            await transaction.RollbackAsync(cancellationToken);
             return Result<BookingDto>.Failure("Seats were booked by another user. Please try again.", 409);
         }
 
-        await _auditService.LogAsync(request.UserId, "CreateBooking", "Booking", booking.Id.ToString(),
-            $"Seats: {string.Join(",", seats.Select(s => $"{s.Row}{s.Number}"))}");
-
-        var bookingDto = new BookingDto(
-            booking.Id, booking.BookingNumber, show.Movie.Title,
-            show.Screen.Theater.Name, show.Screen.Name, show.StartTime,
-            booking.TotalSeats, booking.TotalAmount, booking.Status.ToString(),
-            seats.Select(s => new BookingSeatDto(s.Id, s.Row, s.Number, s.Category.ToString(), s.Price)).ToList(),
-            null, booking.CreatedAt, booking.ExpiresAt);
-
-        return Result<BookingDto>.Success(bookingDto, 201);
     }
 
     private static string GenerateBookingNumber()
@@ -158,6 +168,10 @@ public class ConfirmPaymentCommandHandler : IRequestHandler<ConfirmPaymentComman
 
         if (booking.Status != BookingStatus.Pending)
             return Result<BookingDto>.Failure("Booking is not in pending state", 400);
+
+        // Idempotency check: prevent double-confirmation
+        if (booking.Payment?.TransactionId != null)
+            return Result<BookingDto>.Failure("Payment already processed", 409);
 
         if (booking.ExpiresAt < DateTime.UtcNow)
         {

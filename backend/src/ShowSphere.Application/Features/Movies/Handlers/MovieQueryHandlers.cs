@@ -24,17 +24,93 @@ public class GetMoviesQueryHandler : IRequestHandler<GetMoviesQuery, Result<Page
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(filter.Language))
-            query = query.Where(m => m.Language == filter.Language);
+        {
+            var languages = filter.Language.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (languages.Length == 1)
+                query = query.Where(m => m.Language == languages[0]);
+            else
+                query = query.Where(m => languages.Contains(m.Language));
+        }
 
         if (!string.IsNullOrWhiteSpace(filter.Genre))
-            query = query.Where(m => m.MovieGenres.Any(mg => mg.Genre.Name == filter.Genre));
+        {
+            var genres = filter.Genre.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (genres.Length == 1)
+                query = query.Where(m => m.MovieGenres.Any(mg => mg.Genre.Name == genres[0]));
+            else
+                query = query.Where(m => m.MovieGenres.Any(mg => genres.Contains(mg.Genre.Name)));
+        }
 
-        // For search: fetch all matching language/genre first, then apply fuzzy matching in memory
+        // Show-level filters: only include movies that have at least one matching active show
+        var hasShowFilter = filter.MinPrice.HasValue || filter.MaxPrice.HasValue
+            || !string.IsNullOrWhiteSpace(filter.TimeSlot) || !string.IsNullOrWhiteSpace(filter.TheaterId)
+            || (filter.HasAvailableShows.HasValue && filter.HasAvailableShows.Value);
+
+        if (hasShowFilter)
+        {
+            var showQuery = _context.Shows
+                .Include(s => s.Screen)
+                .Where(s => s.IsActive && s.StartTime > DateTime.UtcNow);
+
+            if (filter.MinPrice.HasValue)
+                showQuery = showQuery.Where(s => s.BasePrice >= filter.MinPrice.Value);
+            if (filter.MaxPrice.HasValue)
+                showQuery = showQuery.Where(s => s.BasePrice <= filter.MaxPrice.Value);
+
+            if (!string.IsNullOrWhiteSpace(filter.TheaterId))
+            {
+                var theaterIds = filter.TheaterId.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(id => Guid.TryParse(id, out var g) ? g : (Guid?)null)
+                    .Where(g => g.HasValue)
+                    .Select(g => g!.Value)
+                    .ToList();
+                if (theaterIds.Count == 1)
+                    showQuery = showQuery.Where(s => s.Screen.TheaterId == theaterIds[0]);
+                else if (theaterIds.Count > 1)
+                    showQuery = showQuery.Where(s => theaterIds.Contains(s.Screen.TheaterId));
+            }
+
+            if (!string.IsNullOrWhiteSpace(filter.TimeSlot))
+            {
+                var slots = filter.TimeSlot.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(s => s.ToLower()).ToList();
+
+                showQuery = showQuery.Where(s =>
+                    (slots.Contains("morning") && s.StartTime.Hour >= 6 && s.StartTime.Hour < 12) ||
+                    (slots.Contains("afternoon") && s.StartTime.Hour >= 12 && s.StartTime.Hour < 17) ||
+                    (slots.Contains("evening") && s.StartTime.Hour >= 17 && s.StartTime.Hour < 21) ||
+                    (slots.Contains("night") && (s.StartTime.Hour >= 21 || s.StartTime.Hour < 6))
+                );
+            }
+
+            var movieIdsWithShows = showQuery.Select(s => s.MovieId).Distinct();
+            query = query.Where(m => movieIdsWithShows.Contains(m.Id));
+        }
+
+        // For search: match against title, description, genre names, and theater names
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var searchLower = filter.Search.ToLower();
-            // First try case-insensitive contains in DB
-            var dbFiltered = query.Where(m => m.Title.ToLower().Contains(searchLower) || m.Description.ToLower().Contains(searchLower));
+
+            // Movies matching by genre name
+            var movieIdsByGenre = _context.Movies
+                .Where(m => m.IsActive)
+                .Where(m => m.MovieGenres.Any(mg => mg.Genre.Name.ToLower().Contains(searchLower)))
+                .Select(m => m.Id);
+
+            // Movies matching by theater name (via shows)
+            var movieIdsByTheater = _context.Shows
+                .Include(s => s.Screen).ThenInclude(sc => sc.Theater)
+                .Where(s => s.IsActive && s.Screen.Theater.Name.ToLower().Contains(searchLower))
+                .Select(s => s.MovieId)
+                .Distinct();
+
+            // First try case-insensitive contains in DB (title, description, genre, theater)
+            var dbFiltered = query.Where(m =>
+                m.Title.ToLower().Contains(searchLower) ||
+                m.Description.ToLower().Contains(searchLower) ||
+                movieIdsByGenre.Contains(m.Id) ||
+                movieIdsByTheater.Contains(m.Id));
             var dbCount = await dbFiltered.CountAsync(cancellationToken);
 
             if (dbCount > 0)
@@ -43,13 +119,26 @@ public class GetMoviesQueryHandler : IRequestHandler<GetMoviesQuery, Result<Page
             }
             else
             {
-                // Fuzzy match: load candidates and filter in memory
+                // Fuzzy match: load candidates and filter in memory against titles, genres, theaters
                 var allMovies = await query
-                    .Select(m => new { m.Id, m.Title })
+                    .Select(m => new { m.Id, m.Title, Genres = m.MovieGenres.Select(mg => mg.Genre.Name).ToList() })
                     .ToListAsync(cancellationToken);
 
+                // Load theater names mapped to movie IDs
+                var theaterMovies = await _context.Shows
+                    .Where(s => s.IsActive)
+                    .Select(s => new { s.MovieId, TheaterName = s.Screen.Theater.Name })
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+                var theaterByMovie = theaterMovies.GroupBy(x => x.MovieId)
+                    .ToDictionary(g => g.Key, g => g.Select(x => x.TheaterName).ToList());
+
                 var matchingIds = allMovies
-                    .Where(m => FuzzyMatch(searchLower, m.Title.ToLower(), 0.7))
+                    .Where(m =>
+                        FuzzyMatch(searchLower, m.Title.ToLower(), 0.7) ||
+                        m.Genres.Any(g => FuzzyMatch(searchLower, g.ToLower(), 0.7)) ||
+                        (theaterByMovie.TryGetValue(m.Id, out var theaters) && theaters.Any(t => FuzzyMatch(searchLower, t.ToLower(), 0.7)))
+                    )
                     .Select(m => m.Id)
                     .ToList();
 

@@ -114,7 +114,8 @@ export interface ShowTiming {
   screenName: string;
   screenType: string;
   startTime: string;
-  basePrice: number;
+  minPrice: number;
+  maxPrice: number;
   availableSeats: number;
 }
 

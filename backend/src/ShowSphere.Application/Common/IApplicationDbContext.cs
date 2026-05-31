@@ -27,4 +27,5 @@ public interface IApplicationDbContext
     DbSet<MovieNotificationSubscription> MovieNotificationSubscriptions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade Database { get; }
 }

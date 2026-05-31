@@ -14,8 +14,8 @@ public class SeatHub : Hub
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"show_{showId}");
     }
 
-    public async Task NotifySeatUpdate(string showId, string seatId, bool isAvailable)
+    public async Task NotifySeatUpdate(string showId, string seatId, bool isAvailable, bool isLocked = false)
     {
-        await Clients.Group($"show_{showId}").SendAsync("SeatUpdated", seatId, isAvailable);
+        await Clients.Group($"show_{showId}").SendAsync("SeatUpdated", seatId, isAvailable, isLocked);
     }
 }

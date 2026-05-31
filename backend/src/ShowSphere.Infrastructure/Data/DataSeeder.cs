@@ -43,7 +43,7 @@ public class DataSeeder
         var admin = new User
         {
             Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-            Email = "admin@showsphere.com",
+            Email = "hetshah11904@gmail.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123"),
             FirstName = "Rajesh",
             LastName = "Sharma",

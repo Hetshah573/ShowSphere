@@ -68,6 +68,11 @@ public record MovieFilterRequest(
     string? Genre,
     string? City,
     string? SortBy,
+    decimal? MinPrice = null,
+    decimal? MaxPrice = null,
+    string? TimeSlot = null,
+    string? TheaterId = null,
+    bool? HasAvailableShows = null,
     bool SortDescending = true,
     int Page = 1,
     int PageSize = 12);

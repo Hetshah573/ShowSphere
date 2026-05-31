@@ -1,53 +1,46 @@
-# ShowSphere - Production-Grade Ticket Booking Platform
+# ShowSphere — Full-Stack Cinema Booking Platform
 
-A complete BookMyShow-style ticket booking platform built with Clean Architecture principles.
+A production-ready BookMyShow-inspired ticket booking platform built with **.NET 8 Clean Architecture**, **React 18 + TypeScript**, and **PostgreSQL on Neon**. Features real-time seat locking via SignalR, Razorpay payments, HMAC-signed QR ticket generation, Google OAuth, JWT auth with refresh tokens, strong password validation, lazy booking expiry, and a full admin panel.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, TailwindCSS, TanStack Query v5, React Hook Form, Zod |
+| Backend | .NET 8, ASP.NET Core, Clean Architecture, MediatR (CQRS), FluentValidation |
+| Database | PostgreSQL (Neon cloud) + EF Core 8 + Npgsql 8 |
+| Auth | JWT (Access + Refresh tokens), Google OAuth, Role-based (Admin / User) |
+| Payments | Razorpay |
+| Emails | Brevo Email API (HTTP) |
+| Real-time | SignalR (live seat push updates) + polling fallback |
+| Scheduler | BackgroundService (daily automated show generation + cleanup) |
+| QR Codes | HMAC-signed QR ticket generation + html5-qrcode scanner |
+| Logging | Serilog (console + rolling file) |
+| Secrets | DotNetEnv (`.env` file, gitignored) |
+| Deployment | Docker on Render (backend) + Vercel (frontend) |
+
+---
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph Client["Frontend - React + TypeScript + Vite"]
-        direction TB
-        RC[React Components] --> RR[React Router]
-        RR --> AX[Axios + Interceptors]
-        RC --> TW[TailwindCSS UI]
-    end
-
-    subgraph API["API Layer - ASP.NET Core"]
-        direction TB
-        CTRL[Controllers] --> MW[Middleware]
-        MW --> AUTH[JWT Auth]
-        MW --> VAL[Validation]
-        MW --> RL[Rate Limiting]
-    end
-
-    subgraph App["Application Layer"]
-        direction TB
-        CMD[Commands] --> MED[MediatR]
-        QRY[Queries] --> MED
-        MED --> HND[Handlers]
-        HND --> FV[FluentValidation]
-    end
-
-    subgraph Domain["Domain Layer"]
-        direction TB
-        ENT[Entities] --> VO[Value Objects]
-        ENT --> EVT[Domain Events]
-        INT[Interfaces] --> ENT
-    end
-
-    subgraph Infra["Infrastructure Layer"]
-        direction TB
-        EF[EF Core] --> SQL[SQLite]
-        JWT[JWT Service] --> TOK[Token Management]
-        SVC[Services] --> EXT[External APIs]
-    end
-
-    Client -->|HTTP/WebSocket| API
-    API --> App
-    App --> Domain
-    App --> Infra
-    Infra --> Domain
+```
+ShowSphere/
+├── backend/
+│   ├── Dockerfile                          # Multi-stage Docker build for Render
+│   ├── ShowSphere.sln
+│   └── src/
+│       ├── ShowSphere.Domain/              # Entities, Enums, Interfaces
+│       ├── ShowSphere.Application/         # CQRS Commands/Queries, Handlers, Validators, DTOs
+│       ├── ShowSphere.Infrastructure/      # EF Core, Migrations, JWT, Email, Payment services
+│       └── ShowSphere.API/                 # Controllers, Middleware, Hubs, Program.cs
+└── frontend/
+    └── src/
+        ├── api/          # Axios client + API service functions
+        ├── components/   # Reusable UI components (Navbar, MovieCard, Layout, etc.)
+        ├── pages/        # All page components
+        ├── routes/       # Protected route wrapper
+        ├── store/        # Auth + Theme context
+        └── types/        # TypeScript type definitions
 ```
 
 ## Database Schema
@@ -57,7 +50,6 @@ erDiagram
     Users ||--o{ RefreshTokens : has
     Users ||--o{ Bookings : makes
     Users ||--o{ Reviews : writes
-    Users ||--o{ Notifications : receives
     Users }o--|| Roles : has
     
     Movies ||--o{ Shows : has
@@ -207,41 +199,64 @@ erDiagram
         string Comment
         datetime CreatedAt
     }
-    
-    Notifications {
-        guid Id PK
-        guid UserId FK
-        string Title
-        string Message
-        string Type
-        boolean IsRead
-        datetime CreatedAt
-    }
-    
-    AuditLogs {
-        guid Id PK
-        guid UserId FK
-        string Action
-        string Entity
-        string EntityId
-        string Details
-        datetime Timestamp
-    }
 ```
 
 ## Features
 
-- **Authentication & Authorization**: JWT + Refresh Tokens, Role-based access (Admin, User)
-- **Movie Browsing**: Search, filter by genre/language/city, sort by rating/date
-- **Theater Management**: Multiple theaters, screens, seat categories
-- **Show Management**: Schedule shows, manage timings
-- **Booking Flow**: Seat selection → Lock → Payment → Confirmation
-- **Concurrency Safety**: Optimistic concurrency + seat locking with timeout
-- **Ticket Generation**: QR code tickets with booking details
-- **Reviews & Ratings**: User reviews with aggregated ratings
-- **Admin Dashboard**: CRUD for movies, theaters, shows + analytics
-- **Notifications**: Booking confirmations, cancellations
-- **Real-time Updates**: SignalR for seat availability
+### Auth & Users
+- JWT access tokens (15 min) + refresh tokens (7 days) with rotation
+- Google OAuth login (graceful conflict handling for email/Google accounts)
+- Register, Login, Forgot Password, Reset Password via Brevo Email API
+- Strong password validation — 8+ chars, uppercase, lowercase, digit, special character
+- Live password checklist UI on Register, Profile, and Reset Password pages
+- Role-based access control (Admin / User)
+
+### Movie Browsing
+- Movie listing with search and filter by genre, language, city
+- Movie detail page with cast, trailer link, reviews, and aggregated rating
+- Wishlist (add/remove movies)
+- Hero carousel on homepage
+
+### Booking Flow
+- Browse shows by movie + city + date
+- Real-time seat selection with SignalR (live push updates on lock/book/cancel)
+- Polling fallback for resilience (60s interval)
+- EF Core serializable transactions to prevent double-booking
+- Pending bookings auto-expire (lazy evaluation on GET)
+- Booking confirmation page with countdown timer
+- QR code ticket generated using HMAC signature (attached to confirmation email)
+- QR code scanner for ticket verification
+
+### Payments
+- Razorpay integration (test mode by default)
+- Payment record linked to booking on success
+
+### Admin Panel
+- Movie CRUD (create, edit, delete, poster/trailer URLs)
+- Show scheduling with overlap detection per screen
+- Theater and screen management
+- Admin dashboard with platform-wide stats
+
+### Automated Show Scheduler
+- Background service runs daily at 2:00 AM IST
+- Auto-generates shows for the next 7 days across all screens for eligible movies
+- Idempotent — skips days/slots that already have shows
+- Deactivates past shows with bookings; deletes past shows without bookings
+- Sends HTML email report to admin on each run (success/failure summary)
+
+### Notifications
+- Booking confirmation email with QR code attachment
+- Booking cancellation email
+- Password reset email with secure link
+- Movie release notification for wishlisted movies
+
+### Infrastructure
+- Global exception middleware with structured error responses
+- Serilog structured logging (console + rolling file sink)
+- Rate limiting on auth endpoints
+- Health check endpoint (`/health`)
+- Automated show scheduler (BackgroundService, daily at 2 AM IST)
+- Secrets managed via `.env` with DotNetEnv — never stored in `appsettings.json`
 
 ## Prerequisites
 
@@ -261,193 +276,83 @@ Before running this project, install the following on your machine:
 | C# Dev Kit | .NET/C# IntelliSense and debugging |
 | ESLint | JavaScript/TypeScript linting |
 | Tailwind CSS IntelliSense | Tailwind class autocomplete |
-| SQLite Viewer | Browse SQLite database in VS Code |
 
-> **Note:** No need to install SQLite separately — the .NET SDK handles it via the `Microsoft.Data.Sqlite` NuGet package.
 
-## Quick Start (Copy-Paste Ready)
+## Quick Start
 
-### Step 1: Clone and Open
+### Step 1 — Clone
 ```bash
-git clone <your-repo-url>
-cd ShowSphere
-code .
+git clone https://github.com/YOUR_USERNAME/showsphere.git
+cd showsphere
 ```
 
-### Step 2: Start Backend (Terminal 1)
+### Step 2 — Configure backend secrets
 ```bash
 cd backend/src/ShowSphere.API
+copy .env.example .env
+```
+Fill in your values in `.env` (DB connection string, JWT secret, Razorpay keys, Brevo API key, etc.).
+
+### Step 3 — Start backend
+```bash
 dotnet restore
 dotnet run
 ```
-Wait until you see: `ShowSphere API starting on []`
+API: **http://localhost:5001** | Swagger: **http://localhost:5001/swagger**
 
-The API runs at **http://localhost:5001** and Swagger UI at **http://localhost:5001/swagger**
-
-### Step 3: Start Frontend (Terminal 2)
+### Step 4 — Start frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open **http://localhost:5173** in your browser.
-
-### Step 4: Login
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@showsphere.com | Admin@123 |
-| User | user@showsphere.com | User@123 |
-
-## Configuration (Optional)
-
-### Razorpay Payment Gateway
-The project uses Razorpay test keys by default. For your own keys, update `backend/src/ShowSphere.API/appsettings.json`:
-```json
-"Payment": {
-  "Razorpay": {
-    "KeyId": "your_razorpay_key_id",
-    "KeySecret": "your_razorpay_key_secret"
-  }
-}
-```
-
-### Email Notifications (Gmail SMTP)
-To enable booking confirmation/cancellation emails:
-1. Use a Gmail account with **2-Step Verification** enabled
-2. Go to https://myaccount.google.com/apppasswords and generate an App Password
-3. Update `appsettings.json`:
-```json
-"Email": {
-  "SmtpHost": "smtp.gmail.com",
-  "SmtpPort": 587,
-  "SenderEmail": "your-email@gmail.com",
-  "SenderPassword": "your-16-char-app-password",
-  "SenderName": "ShowSphere"
-}
-```
-
-### Google OAuth Login
-Update both files with your Google Cloud Console Client ID:
-- `backend/src/ShowSphere.API/appsettings.json` → `Google:ClientId`
-- `frontend/.env` → `VITE_GOOGLE_CLIENT_ID`
-
-## Detailed Installation
-
-### 1. Clone the repository
-```bash
-git clone <your-repo-url>
-cd ShowSphere
-```
-
-### 2. Backend Setup
-```bash
-cd backend
-dotnet restore
-cd src/ShowSphere.API
-dotnet run
-```
-
-The API will be available at `http://localhost:5001`.
-Swagger docs at `http://localhost:5001/swagger`.
-
-### 3. Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend will be available at `http://localhost:5173`.
-
-### 4. Seed Data (Automatic)
-The application **automatically** seeds sample data on first run including:
-- Admin user (admin@showsphere.com / Admin@123)
-- Sample user (user@showsphere.com / User@123)
-- 10+ movies with genres and cast
-- Theaters with screens and seats
-- Shows for the next 7 days
-- Sample bookings with payment data
-
-> If data looks stale or corrupt, delete `backend/src/ShowSphere.API/showsphere.db` and restart the backend — it will recreate everything fresh.
+Frontend: **http://localhost:5173**
 
 ## Environment Variables
 
-### Backend (appsettings.json)
-```json
-{
-  "Jwt": {
-    "Secret": "your-256-bit-secret-key-here-minimum-32-chars",
-    "Issuer": "ShowSphere",
-    "Audience": "ShowSphere",
-    "AccessTokenExpirationMinutes": 15,
-    "RefreshTokenExpirationDays": 7
-  },
-  "ConnectionStrings": {
-    "DefaultConnection": "Data Source=showsphere.db"
-  }
-}
-```
-
-### Frontend (.env)
+### Backend — `backend/src/ShowSphere.API/.env`
 ```env
-VITE_API_URL=http://localhost:5001/api
-VITE_SIGNALR_URL=http://localhost:5001
+ConnectionStrings__DefaultConnection=Host=...;Database=neondb;Username=...;Password=...;SSL Mode=Require
+Jwt__Secret=YOUR_JWT_SECRET_MIN_32_CHARS
+Google__ClientId=YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
+Payment__Razorpay__KeyId=rzp_test_XXXX
+Payment__Razorpay__KeySecret=YOUR_RAZORPAY_SECRET
+Email__BrevoApiKey=xkeysib-xxxxxxxxxxxx
+Email__FromEmail=your-verified-email@gmail.com
+QrCode__Secret=YOUR_QRCODE_HMAC_SECRET
+Cors__AllowedOrigins=http://localhost:5173,https://your-app.vercel.app
+```
+See `.env.example` for all keys with descriptions.
+
+### Frontend — set on Vercel dashboard (or local `.env`)
+```env
+VITE_API_URL=https://your-backend.onrender.com/api
 ```
 
-## Running the Application
+## Seed Data (Automatic)
 
-### Development Mode
-```bash
-# Terminal 1 - Backend
-cd backend/src/ShowSphere.API
-dotnet run
+On first `dotnet run` the app automatically seeds:
+- Admin + sample user accounts
+- 10+ movies with genres and cast
+- Theaters, screens, and seats
+- Sample bookings, payments, and reviews
 
-# Terminal 2 - Frontend
-cd frontend
-npm run dev
-```
+Shows are generated automatically by the **Show Scheduler** background service (runs daily at 2:00 AM IST, creates shows for the next 7 days).
 
-### Production Build
-```bash
-# Backend
-cd backend/src/ShowSphere.API
-dotnet publish -c Release -o ./publish
+## Deployment
 
-# Frontend
-cd frontend
-npm run build
-```
+### Backend → Render (Docker)
+1. New Web Service → connect GitHub repo
+2. Root Directory: `backend` | Environment: `Docker`
+3. Add all `.env` keys as environment variables in the Render dashboard
+4. Set `Cors__AllowedOrigins` to include your Vercel frontend URL
 
-## API Documentation
+### Frontend → Vercel
+1. Import GitHub repo
+2. Root Directory: `frontend` | Build Command: `npm run build` | Output: `dist`
+3. Add env var: `VITE_API_URL=https://your-app.onrender.com/api`
 
-Swagger UI is available at `http://localhost:5001/swagger` when running in Development mode.
 
-## Project Structure
-
-```
-ShowSphere/
-├── backend/
-│   ├── ShowSphere.sln
-│   └── src/
-│       ├── ShowSphere.Domain/          # Entities, Interfaces, Value Objects
-│       ├── ShowSphere.Application/     # CQRS, Handlers, DTOs, Validators
-│       ├── ShowSphere.Infrastructure/  # EF Core, JWT, Services
-│       └── ShowSphere.API/             # Controllers, Middleware, Program.cs
-├── frontend/
-│   ├── src/
-│   │   ├── api/          # Axios client and API services
-│   │   ├── components/   # Reusable UI components
-│   │   ├── features/     # Feature-based modules
-│   │   ├── hooks/        # Custom React hooks
-│   │   ├── lib/          # Utilities and helpers
-│   │   ├── pages/        # Page components
-│   │   ├── routes/       # Route definitions
-│   │   ├── store/        # State management
-│   │   └── types/        # TypeScript type definitions
-│   └── package.json
-├── docs/                  # Additional documentation
-└── scripts/              # Utility scripts
-```
 
 ## Troubleshooting
 
@@ -455,35 +360,25 @@ ShowSphere/
 |-------|----------|
 | `dotnet` not recognized | Install .NET 8 SDK and restart terminal |
 | `node` / `npm` not recognized | Install Node.js 18+ and restart terminal |
-| Database errors on startup | Delete `showsphere.db` file and restart backend |
-| JWT errors | Ensure secret key is at least 32 characters |
-| CORS errors | Check that frontend URL is in AllowedOrigins |
-| Port 5001 in use | Kill the process: `netstat -ano \| findstr :5001` then `taskkill /PID <pid> /F` |
-| Port 5173 in use | Kill the process or change port in `vite.config.ts` |
-| `npm install` fails | Delete `node_modules` folder and `package-lock.json`, then re-run `npm install` |
-| Emails going to spam | Ensure no emojis in templates; use App Password not regular password |
-| Google login not working | Verify Google Client ID in both `appsettings.json` and `frontend/.env` |
+| Database errors on startup | Check `.env` connection string and Neon DB status |
+| JWT errors | Ensure `Jwt__Secret` is at least 32 characters |
+| CORS errors | Add frontend URL to `Cors__AllowedOrigins` in `.env` |
+| Port 5001 in use | `netstat -ano \| findstr :5001` then `taskkill /PID <pid> /F` |
+| Port 5173 in use | Change port in `vite.config.ts` |
+| Google login not working | Verify `Google__ClientId` in `.env` matches Google Console |
+| Emails not sending | Verify sender email in Brevo dashboard (Settings → Senders & IPs) |
 
-## Tech Stack
+## Design Decisions
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18, TypeScript, Vite 5, TailwindCSS 3, TanStack React Query |
-| Backend | .NET 8, ASP.NET Core, MediatR (CQRS), FluentValidation |
-| Database | SQLite + EF Core 8 |
-| Auth | JWT (Access + Refresh tokens), Google OAuth |
-| Payments | Razorpay (Strategy Pattern - swappable) |
-| Emails | Gmail SMTP with HTML templates |
-| Real-time | SignalR (seat availability) |
-| QR Codes | QRCoder library (PNG generation) |
-
-## Assumptions & Design Decisions
-
-1. **SQLite for portability** - No external DB server needed; just copy the project
-2. **Seat locking timeout**: 10 minutes - seats auto-release after timeout
-3. **Razorpay test mode** - Uses test keys; switch to live keys for production
-4. **QR Code** - Generated as PNG base64 using QRCoder library, embedded in confirmation emails
-5. **SignalR** - Used for real-time seat availability during booking
-6. **Rate limiting** - 10 requests/minute on auth endpoints
-7. **Refresh token rotation** - Old token invalidated on refresh
-8. **Email delivery** - Uses Gmail SMTP with App Password; skips silently if not configured
+- **PostgreSQL on Neon** — cloud-hosted, free tier, supports `pgvector` for future AI features
+- **Brevo Email API** — HTTP-based (works on Render which blocks SMTP ports), free 300 emails/day, any recipient
+- **SignalR + polling hybrid** — real-time seat updates via WebSocket with 60s polling fallback for resilience
+- **Automated show scheduler** — idempotent background service; generates shows daily, cleans up past shows
+- **Lazy booking expiry** — pending bookings expire on GET instead of requiring a background job
+- **HMAC-signed QR tickets** — tamper-proof without a separate lookup on every scan
+- **Serializable transactions** — prevents race conditions on seat booking
+- **Npgsql UTC enforcement** — all `DateTime` values explicitly set to `DateTimeKind.Utc` before EF Core queries
+- **DotNetEnv secrets** — `.env` loaded at startup; `appsettings.json` has no real secrets
+- **Refresh token rotation** — old token invalidated on every refresh
+- **Rate limiting** — applied on auth endpoints to prevent brute force
+- **Razorpay test mode** — swap `KeyId`/`KeySecret` in `.env` to go live

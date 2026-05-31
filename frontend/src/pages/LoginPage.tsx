@@ -145,12 +145,6 @@ export function LoginPage() {
             </Link>
           </p>
 
-          {/* Demo credentials */}
-          <div className="mt-6 p-3 bg-gray-100 dark:bg-gray-700/50 rounded-lg text-sm">
-            <p className="text-gray-700 dark:text-gray-300 font-medium mb-1">Demo Credentials:</p>
-            <p className="text-gray-600 dark:text-gray-400">Admin: admin@showsphere.com / Admin@123</p>
-            <p className="text-gray-600 dark:text-gray-400">User: user@showsphere.com / User@123</p>
-          </div>
         </div>
       </div>
     </div>

@@ -204,7 +204,7 @@ export function AdminMoviesPage() {
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No movies found</td></tr>
               ) : (
                 movies.items.map((m) => (
-                  <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-gray-750">
+                  <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {m.posterUrl && (

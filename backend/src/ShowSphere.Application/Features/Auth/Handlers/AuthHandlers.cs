@@ -28,7 +28,11 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, Result<Au
             .FirstOrDefaultAsync(u => u.Email == request.Email.ToLower(), cancellationToken);
 
         if (existingUser != null)
+        {
+            if (string.IsNullOrEmpty(existingUser.PasswordHash))
+                return Result<AuthResponse>.Failure("This email is linked to a Google account. Please use Google Sign-In.", 409);
             return Result<AuthResponse>.Failure("Email is already registered", 409);
+        }
 
         var user = new User
         {
@@ -82,7 +86,13 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, Result<AuthResp
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Email == request.Email.ToLower(), cancellationToken);
 
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        if (user == null)
+            return Result<AuthResponse>.Failure("Invalid email or password", 401);
+
+        if (string.IsNullOrEmpty(user.PasswordHash))
+            return Result<AuthResponse>.Failure("This account uses Google Sign-In. Please log in with Google.", 401);
+
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return Result<AuthResponse>.Failure("Invalid email or password", 401);
 
         if (!user.IsActive)

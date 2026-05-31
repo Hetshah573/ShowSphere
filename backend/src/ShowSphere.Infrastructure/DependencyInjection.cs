@@ -26,10 +26,11 @@ public static class DependencyInjection
         // Services
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IAuditService, AuditService>();
-        services.AddScoped<IEmailService, EmailService>();
+        services.AddHttpClient<IEmailService, EmailService>();
         services.AddScoped<IGoogleAuthService, GoogleAuthService>();
         services.AddHttpClient<IPaymentGateway, RazorpayPaymentGateway>();
         services.AddScoped<DataSeeder>();
+        services.AddHostedService<ShowSchedulerService>();
 
         // JWT Authentication
         var jwtSecret = configuration["Jwt:Secret"]!;

@@ -7,6 +7,7 @@ public class BookingSeat
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BookingId { get; set; }
     public Guid SeatId { get; set; }
+    public Guid ShowId { get; set; } // Denormalized for unique constraint
     public decimal Price { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Pending;
 

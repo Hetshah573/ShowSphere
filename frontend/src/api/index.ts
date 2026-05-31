@@ -14,7 +14,6 @@ import type {
   Booking,
   BookingHistory,
   Review,
-  TheaterList,
   DashboardStats,
   UserProfile,
   WishlistStatus,
@@ -113,6 +112,12 @@ export const wishlistApi = {
   isInWishlist: (movieId: string) => api.get<WishlistStatus>(`/wishlist/${movieId}`),
   add: (movieId: string) => api.post(`/wishlist/${movieId}`),
   remove: (movieId: string) => api.delete(`/wishlist/${movieId}`),
+};
+
+// Theaters (public)
+export const theatersApi = {
+  getAll: (city?: string) =>
+    api.get<{ id: string; name: string; address: string; city: string; screenCount: number }[]>('/theaters', { params: { city } }),
 };
 
 // Ticket Verification (staff use)

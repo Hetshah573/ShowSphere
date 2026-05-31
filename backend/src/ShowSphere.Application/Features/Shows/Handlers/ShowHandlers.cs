@@ -51,14 +51,20 @@ public class GetShowsByMovieQueryHandler : IRequestHandler<GetShowsByMovieQuery,
                 g.Key.Name,
                 g.Key.Address,
                 g.Key.City,
-                g.Select(s => new ShowTimingDto(
-                    s.Id,
-                    s.Screen.Name,
-                    s.Screen.ScreenType.ToString(),
-                    s.StartTime,
-                    s.BasePrice,
-                    s.Screen.TotalSeats - (bookedCounts.FirstOrDefault(bc => bc.ShowId == s.Id)?.Count ?? 0)
-                )).OrderBy(st => st.StartTime).ToList()
+                g.Select(s => {
+                    var activeSeats = s.Screen.Seats.Where(seat => seat.IsActive).ToList();
+                    var minPrice = activeSeats.Count > 0 ? activeSeats.Min(seat => seat.Price) : s.BasePrice;
+                    var maxPrice = activeSeats.Count > 0 ? activeSeats.Max(seat => seat.Price) : s.BasePrice;
+                    return new ShowTimingDto(
+                        s.Id,
+                        s.Screen.Name,
+                        s.Screen.ScreenType.ToString(),
+                        s.StartTime,
+                        minPrice,
+                        maxPrice,
+                        s.Screen.TotalSeats - (bookedCounts.FirstOrDefault(bc => bc.ShowId == s.Id)?.Count ?? 0)
+                    );
+                }).OrderBy(st => st.StartTime).ToList()
             )).ToList();
 
         return Result<List<ShowsByMovieDto>>.Success(result);

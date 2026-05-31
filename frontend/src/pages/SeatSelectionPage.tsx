@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { bookingsApi } from '@/api';
 import { PageLoader } from '@/components/Loading';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -10,6 +11,7 @@ import toast from 'react-hot-toast';
 export function SeatSelectionPage() {
   const { showId } = useParams<{ showId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [selectedSeats, setSelectedSeats] = useState<SeatAvailability[]>([]);
   const [isBooking, setIsBooking] = useState(false);
 
@@ -17,8 +19,78 @@ export function SeatSelectionPage() {
     queryKey: ['seats', showId],
     queryFn: () => bookingsApi.getSeats(showId!),
     enabled: !!showId,
-    refetchInterval: 15000, // Refresh every 15s
+    refetchInterval: 60000, // Polling fallback; SignalR is primary
   });
+
+  useEffect(() => {
+    if (!showId) return;
+
+    const resolveHubUrl = () => {
+      if (import.meta.env.VITE_SIGNALR_URL) return import.meta.env.VITE_SIGNALR_URL;
+
+      const apiUrl = import.meta.env.VITE_API_URL || '/api';
+      if (apiUrl.startsWith('http'))
+        return `${apiUrl.replace(/\/api\/?$/, '')}/hubs/seats`;
+
+      return `${window.location.origin}/hubs/seats`;
+    };
+
+    const connection = new HubConnectionBuilder()
+      .withUrl(resolveHubUrl())
+      .withAutomaticReconnect()
+      .configureLogging(LogLevel.Warning)
+      .build();
+
+    connection.on('SeatUpdated', (seatId: string, isAvailable: boolean, isLocked: boolean = false) => {
+      queryClient.setQueryData(['seats', showId], (old: unknown) => {
+        const oldResponse = old as { data?: SeatAvailability[] } | undefined;
+        if (!oldResponse?.data) return old;
+
+        return {
+          ...oldResponse,
+          data: oldResponse.data.map((seat) =>
+            seat.seatId === seatId
+              ? {
+                  ...seat,
+                  isAvailable,
+                  isLocked,
+                }
+              : seat
+          ),
+        };
+      });
+
+      // Drop seat from selection immediately if another event made it unavailable.
+      if (!isAvailable) {
+        setSelectedSeats((prev) => prev.filter((s) => s.seatId !== seatId));
+      }
+    });
+
+    const start = async () => {
+      try {
+        await connection.start();
+        await connection.invoke('JoinShowGroup', showId);
+      } catch {
+        // Polling fallback still keeps seat state fresh.
+      }
+    };
+
+    start();
+
+    return () => {
+      const stop = async () => {
+        try {
+          if (connection.state === 'Connected') {
+            await connection.invoke('LeaveShowGroup', showId);
+          }
+        } finally {
+          await connection.stop();
+        }
+      };
+
+      void stop();
+    };
+  }, [queryClient, showId]);
 
   if (isLoading) return <PageLoader />;
 
@@ -130,12 +202,22 @@ export function SeatSelectionPage() {
         </div>
       </div>
 
-      {/* Category Legend */}
+      {/* Category Legend - Dynamic from actual seat data */}
       <div className="flex flex-wrap justify-center gap-4 mb-8 text-xs">
-        <span className="text-gray-500 dark:text-gray-300">Silver: ₹150</span>
-        <span className="text-yellow-300">Gold: ₹250</span>
-        <span className="text-purple-300">Platinum: ₹350</span>
-        <span className="text-red-300">Recliner: ₹500</span>
+        {(() => {
+          const categories = [...new Map(seats.map(s => [s.category, s.price])).entries()];
+          const categoryColors: Record<string, string> = {
+            Silver: 'text-gray-300',
+            Gold: 'text-yellow-300',
+            Platinum: 'text-purple-300',
+            Recliner: 'text-red-300',
+          };
+          return categories.map(([cat, price]) => (
+            <span key={cat} className={categoryColors[cat] || 'text-gray-400'}>
+              {cat}: {formatCurrency(price)}
+            </span>
+          ));
+        })()}
       </div>
 
       {/* Booking Summary */}
