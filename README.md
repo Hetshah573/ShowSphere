@@ -11,14 +11,9 @@ A production-ready BookMyShow-inspired ticket booking platform built with **.NET
 | Database | PostgreSQL (Neon cloud) + EF Core 8 + Npgsql 8 |
 | Auth | JWT (Access + Refresh tokens), Google OAuth, Role-based (Admin / User) |
 | Payments | Razorpay |
-<<<<<<< HEAD
 | Emails | Brevo Email API (HTTP) |
 | Real-time | SignalR (live seat push updates) + polling fallback |
 | Scheduler | BackgroundService (daily automated show generation + cleanup) |
-=======
-| Emails | Gmail SMTP with App Password |
-| Real-time | SignalR (live seat availability) |
->>>>>>> 4decd47db4d55b1a1d0bc42e8c65ee8dedbbb4e6
 | QR Codes | HMAC-signed QR ticket generation + html5-qrcode scanner |
 | Logging | Serilog (console + rolling file) |
 | Secrets | DotNetEnv (`.env` file, gitignored) |
